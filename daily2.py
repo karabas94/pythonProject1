@@ -24,9 +24,7 @@ batch_size = 128
 epochs = 100
 
 
-def normalize(data, train_split):
-    data_mean = data[:train_split].mean(axis=0)
-    data_std = data[:train_split].std(axis=0)
+def normalize(data, data_mean, data_std):
     return (data - data_mean) / data_std
 
 
@@ -38,7 +36,12 @@ selected_features = [feature_keys[i] for i in [0, 1, 2, 3]]
 features = df[selected_features]
 features.index = df[date_time_key]
 
-features = normalize(features.values, train_split)
+data_mean = features.iloc[:train_split].mean()
+print("data_mean", data_mean)
+data_std = features.iloc[:train_split].std()
+print("data_std", data_std)
+
+features = normalize(features.values, data_mean.values, data_std.values)
 features = pd.DataFrame(features)
 
 train_data = features.loc[0:train_split - 1]
@@ -127,19 +130,17 @@ modelckpt_callback = keras.callbacks.ModelCheckpoint(
 # loading best weight
 model.load_weights(path_checkpoint)
 
-# -------------predict val-data ---------------------------
+# -------------predict val-data ----------------------------------------------------------------------------------------
 predictions = model.predict(dataset_val)
 
 print("Shape of predictions:", predictions.shape)
 
 
-def denormalize_predictions(predictions, features, train_split):
-    data_mean = features.iloc[:train_split].mean()
-    data_std = features.iloc[:train_split].std()
-    return predictions * data_std.values + data_mean.values
+def denormalize_predictions(predictions, data_mean, data_std):
+    return predictions * data_std + data_mean
 
 
-predictions_denorm = denormalize_predictions(predictions, df[selected_features], train_split)
+predictions_denorm = denormalize_predictions(predictions, data_mean.values, data_std.values)
 print("Shape of denormalize predictions:", predictions_denorm.shape)
 
 df_candles = pd.DataFrame(predictions_denorm, columns=['Open', 'High', 'Low', 'Close'])
@@ -147,7 +148,7 @@ df_candles = pd.DataFrame(predictions_denorm, columns=['Open', 'High', 'Low', 'C
 df_candles.index = pd.date_range(start='23-02-2023 14:35', periods=len(df_candles), freq='5min')
 
 mpf.plot(df_candles, type='candle', style='charles',
-         title='predict',
+         title='predict val data',
          ylabel='price')
 
 # creating plot for last 82497 samples
@@ -162,19 +163,19 @@ ohlc_df.columns = ['Date', 'Open', 'High', 'Low', 'Close']
 ohlc_df.set_index('Date', inplace=True)
 
 mpf.plot(ohlc_df, type='candle', datetime_format='%m/%d/%Y %H:%M',
-         title='true', ylabel='price', style='charles')
+         title='true val data', ylabel='price', style='charles')
 
 mpf.show()
-# ----------------------preprocess predict data ------------------------------
+# ----------------------preprocess predict data ------------------------------------------------------------------------
 df_pred = pd.read_csv('pred5m.csv')
 feature_keys_pred = ['Open', 'High', 'Low', 'Last']
 selected_features_pred = [feature_keys_pred[i] for i in [0, 1, 2, 3]]
 features_pred = df_pred[selected_features_pred]
 
-features_pred = normalize(features_pred.values, train_split)
+features_pred = normalize(features_pred.values, data_mean.values, data_std.values)
 features_pred = pd.DataFrame(features_pred)
 print('features_pred', features_pred)
-# ------------------------predict for next day----------------------------------
+# ------------------------predict next day------------------------------------------------------------------------------
 last_inputs = features_pred[-sequence_length:].values
 pred = []
 
@@ -188,60 +189,30 @@ for i in range(288):
     )
 
     predictions_next = model.predict(dataset_predict)
-    predictions_next_denorm = denormalize_predictions(predictions_next, df[selected_features], train_split)
+    predictions_next_denorm = denormalize_predictions(predictions_next, data_mean.values, data_std.values)
     pred.append(predictions_next_denorm[0].flatten())
     last_inputs = np.vstack([last_inputs[1:], predictions_next[0]])
 
 print(pred)
 
 predictions_df = pd.DataFrame(pred, columns=['Open', 'High', 'Low', 'Close'])
-dates = pd.date_range(start="2024-04-11 07:00", periods=len(pred), freq='5min')
+dates = pd.date_range(start="2024-04-11 00:00", periods=len(pred), freq='5min')
 predictions_df.index = dates
 
 mpf.plot(predictions_df,
          type='candle',
          style='charles',
-         title='predicted Next 24 Hours',
+         title='predicted next day',
          ylabel='price',
          volume=False,
          figsize=(12, 6))
 
-plt.show()
 
-# -------------------------------------------------------------------------------
-# new_last_inputs = features[-sequence_length:].values
-# print(new_last_inputs.shape)
-#
-# new_dataset_predict = keras.preprocessing.timeseries_dataset_from_array(
-#     new_last_inputs,
-#     None,
-#     sequence_length=sequence_length,
-#     sampling_rate=1,
-#     batch_size=1,
-# )
-#
-# predd = []
-#
-#
-# for j in new_dataset_predict:
-#     prediction = model.predict(j)
-#     prediction_denorm = denormalize_predictions(prediction, df[selected_features], train_split)
-#     predd.append(prediction_denorm.flatten())
-#
-#     new_last_inputs = np.vstack([new_last_inputs[1:], prediction[0]])
-#
-# print('new', predd)
-#
-# predictions_df = pd.DataFrame(predd, columns=['Open', 'High', 'Low', 'Close'])
-# dates = pd.date_range(start="2024-04-02 07:00", periods=len(predd), freq='5m')
-# predictions_df.index = dates
-#
-# mpf.plot(predictions_df,
-#          type='candle',
-#          style='charles',
-#          title='predict',
-#          ylabel='price',
-#          volume=False,
-#          figsize=(12, 6))
-#
-# plt.show()
+# -----------------------true next day----------------------------------------------------------------------------------
+df_true = pd.read_csv('true5m.csv')
+df_true['Time'] = pd.to_datetime(df_true['Time'])
+df_true.set_index('Time', inplace=True)
+df_true.rename(columns={'Last': 'Close'}, inplace=True)
+mpf.plot(df_true, type='candle', datetime_format='%m/%d/%Y %H:%M',
+         title='true next day', ylabel='price', style='charles')
+mpf.show()
