@@ -15,9 +15,9 @@ date_time_key = "Time"
 
 split_fraction = 0.715
 train_split = int(split_fraction * int(df.shape[0]))
-step = 6
+step = 1
 
-past = 8640
+past = 4320
 future = 72
 learning_rate = 0.001
 batch_size = 128
@@ -108,7 +108,7 @@ model = keras.Model(inputs=inputs, outputs=outputs)
 model.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate), loss="mse")
 model.summary()
 
-path_checkpoint = "5m_model_checkpoint.weights.h5"
+path_checkpoint = "new_5m_model_checkpoint.weights.h5"
 
 es_callback = keras.callbacks.EarlyStopping(monitor="val_loss", min_delta=0, patience=5)
 
@@ -130,15 +130,15 @@ modelckpt_callback = keras.callbacks.ModelCheckpoint(
 # loading best weight
 model.load_weights(path_checkpoint)
 
-# -------------predict val-data ----------------------------------------------------------------------------------------
-predictions = model.predict(dataset_val)
-
-print("Shape of predictions:", predictions.shape)
-
 
 def denormalize_predictions(predictions, data_mean, data_std):
     return predictions * data_std + data_mean
 
+
+# -------------predict val-data ----------------------------------------------------------------------------------------
+predictions = model.predict(dataset_val)
+
+print("Shape of predictions:", predictions.shape)
 
 predictions_denorm = denormalize_predictions(predictions, data_mean.values, data_std.values)
 print("Shape of denormalize predictions:", predictions_denorm.shape)
@@ -151,10 +151,10 @@ mpf.plot(df_candles, type='candle', style='charles',
          title='predict val data',
          ylabel='price')
 
-# creating plot for last 82497 samples
+# creating plot for last 86889 samples
 df['Time'] = pd.to_datetime(df['Time'])
 
-last_3880_df = df.tail(82497)
+last_3880_df = df.tail(86889)
 
 ohlc_df = last_3880_df[['Time', 'Open', 'High', 'Low', 'Last']].copy()
 
@@ -167,7 +167,7 @@ mpf.plot(ohlc_df, type='candle', datetime_format='%m/%d/%Y %H:%M',
 
 mpf.show()
 # ----------------------preprocess predict data ------------------------------------------------------------------------
-df_pred = pd.read_csv('pred5m.csv')
+df_pred = pd.read_csv('new_pred5m.csv')
 feature_keys_pred = ['Open', 'High', 'Low', 'Last']
 selected_features_pred = [feature_keys_pred[i] for i in [0, 1, 2, 3]]
 features_pred = df_pred[selected_features_pred]
@@ -176,7 +176,7 @@ features_pred = normalize(features_pred.values, data_mean.values, data_std.value
 features_pred = pd.DataFrame(features_pred)
 print('features_pred', features_pred)
 # ------------------------predict next day------------------------------------------------------------------------------
-last_inputs = features_pred[-sequence_length:].values
+last_inputs = features_pred[-past:].values
 pred = []
 
 for i in range(288):
@@ -184,7 +184,7 @@ for i in range(288):
         last_inputs,
         None,
         sequence_length=sequence_length,
-        sampling_rate=1,
+        sampling_rate=step,
         batch_size=1,
     )
 
@@ -196,7 +196,7 @@ for i in range(288):
 print(pred)
 
 predictions_df = pd.DataFrame(pred, columns=['Open', 'High', 'Low', 'Close'])
-dates = pd.date_range(start="2024-04-11 00:00", periods=len(pred), freq='5min')
+dates = pd.date_range(start="2024-04-29 00:00", periods=len(pred), freq='5min')
 predictions_df.index = dates
 
 mpf.plot(predictions_df,
@@ -206,7 +206,6 @@ mpf.plot(predictions_df,
          ylabel='price',
          volume=False,
          figsize=(12, 6))
-
 
 # -----------------------true next day----------------------------------------------------------------------------------
 df_true = pd.read_csv('true5m.csv')
